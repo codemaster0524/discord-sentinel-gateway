@@ -2,9 +2,10 @@ const { Client, GatewayIntentBits } = require('discord.js');
 
 // ===== 설정 =====
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const CLOUDFLARE_WORKER_URL = process.env.CLOUDFLARE_WORKER_URL || 'https://sentinel-bot.eunsung-lee-460.workers.dev';
-const CONTEXT_WINDOW_MINUTES = 10; // 문맥 유지 시간 (10분)
-const CHECK_INTERVAL_SECONDS = 60; // 체크 주기 (60초)
+const SENTINEL_WORKER_URL = process.env.SENTINEL_WORKER_URL || 'https://sentinel-bot.eunsung-lee-460.workers.dev';
+const POINTS_WORKER_URL = process.env.POINTS_WORKER_URL; // 나중에 설정
+const CONTEXT_WINDOW_MINUTES = 10; // 문맥 유지 시간
+const CHECK_INTERVAL_SECONDS = 5; // 5초마다 체크 ✨
 
 // ===== 메시지 버퍼 (채널별로 관리) =====
 const messageBuffer = new Map(); // channelId -> messages[]
@@ -14,7 +15,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -23,7 +25,7 @@ client.once('ready', () => {
   console.log(`✅ 봇이 로그인되었습니다: ${client.user.tag}`);
   console.log(`📊 ${client.guilds.cache.size}개 서버에 접속 중`);
   
-  // 1분마다 메시지를 Cloudflare Worker로 전송
+  // 5초마다 메시지를 Sentinel Worker로 전송 ✨
   setInterval(async () => {
     await checkAndSendMessages();
   }, CHECK_INTERVAL_SECONDS * 1000);
@@ -73,6 +75,8 @@ function cleanOldMessages() {
     const filtered = messages.filter(m => m.timestamp > cutoffTime);
     messageBuffer.set(channelId, filtered);
   }
+  
+  console.log(`🧹 오래된 메시지 정리 완료`);
 }
 
 // ===== 새 메시지만 필터링 =====
@@ -80,7 +84,7 @@ function getNewMessages(messages) {
   return messages.filter(m => !m.checked);
 }
 
-// ===== Cloudflare Worker로 메시지 전송 및 체크 =====
+// ===== Sentinel Worker로 메시지 전송 및 체크 =====
 async function checkAndSendMessages() {
   let totalChecked = 0;
   
@@ -118,7 +122,7 @@ async function checkAndSendMessages() {
         new Map(data.contextMessages.map(m => [m.id, m])).values()
       );
       
-      const response = await fetch(`${CLOUDFLARE_WORKER_URL}/batch`, {
+      const response = await fetch(`${SENTINEL_WORKER_URL}/batch`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,7 +163,9 @@ async function checkAndSendMessages() {
     }
   }
   
-  console.log(`✅ 총 ${totalChecked}개 메시지 체크 완료\n`);
+  if (totalChecked > 0) {
+    console.log(`✅ 총 ${totalChecked}개 메시지 체크 완료\n`);
+  }
 }
 
 // ===== 에러 핸들링 =====
@@ -188,11 +194,23 @@ process.on('SIGINT', async () => {
 // ===== Keep-Alive 서버 (Render.com Sleep 방지) =====
 const http = require('http');
 const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end(`Bot is running! Cached messages: ${Array.from(messageBuffer.values()).reduce((sum, arr) => sum + arr.length, 0)}`);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  const messageCount = Array.from(messageBuffer.values()).reduce((sum, arr) => sum + arr.length, 0);
+  res.end(`
+    <html>
+      <head><title>Gateway Bot Status</title></head>
+      <body>
+        <h1>🚀 Gateway Bot Running</h1>
+        <p>📊 캐시된 메시지: ${messageCount}개</p>
+        <p>⏰ 체크 주기: ${CHECK_INTERVAL_SECONDS}초</p>
+        <p>🕐 문맥 유지: ${CONTEXT_WINDOW_MINUTES}분</p>
+        <p>✅ 상태: 정상 작동 중</p>
+      </body>
+    </html>
+  `);
 });
 server.listen(process.env.PORT || 3000, () => {
   console.log(`🌐 Keep-alive 서버 실행 중: Port ${process.env.PORT || 3000}`);
 });
 
-console.log('🚀 봇 시작 중...');
+console.log('🚀 Gateway 봇 시작 중...');
