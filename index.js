@@ -122,7 +122,7 @@ async function checkAndSendMessages() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Bot-Auth': DISCORD_BOT_TOKEN
+          'X-Bot-Auth': process.env.GATEWAY_AUTH_KEY
         },
         body: JSON.stringify({
           guild_id: guildId,
